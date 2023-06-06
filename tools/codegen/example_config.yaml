@@ -1,0 +1,16 @@
+project: "github.com/test/zj"
+
+# skip generate default gqlgen exec action file, default is true
+# skipGqlGenerated: true
+
+# informer config
+informer: 
+  resources:
+    - EverouteCluster
+    - IsolationPolicy
+  outFile: test/zj
+
+# gqlgen config
+# gqlgen:
+#   schema: 
+#     - pkg/controller/tower/schema/model.graphql

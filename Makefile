@@ -18,3 +18,4 @@ docker-test:
 	docker run --rm -iu 0:0 -w $(WORKDIR) -v $(CURDIR):$(WORKDIR) golang:1.19 make test
 
 publish:
+	go build -o graphc_codegen tools/codegen/main.go

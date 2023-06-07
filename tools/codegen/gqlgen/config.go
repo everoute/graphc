@@ -23,11 +23,14 @@ func DefaultConfig() (*config.Config, error) {
 	dec.KnownFields(true)
 
 	if err := dec.Decode(resConfig); err != nil {
-		return nil, fmt.Errorf("unable to parse config: %w", err)
-	}
-
-	if err := config.CompleteConfig(resConfig); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to parse config: %v", err)
 	}
 	return resConfig, nil
+}
+
+func CompleteConfig(cfg *config.Config) error {
+	if err := config.CompleteConfig(cfg); err != nil {
+		return fmt.Errorf("complete gqlgen config failed: %v", err)
+	}
+	return nil
 }

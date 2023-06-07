@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/everoute/everoute/plugin/tower/pkg/client"
+	"github.com/everoute/graphc/pkg/client"
 	. "github.com/onsi/gomega"
 )
 

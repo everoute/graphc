@@ -31,11 +31,11 @@ import (
 	"github.com/everoute/graphc/pkg/utils"
 	"github.com/everoute/graphc/third_party/forked/client-go/informer"
 	"github.com/gertd/go-pluralize"
-	"k8s.io/apimachinery/pkg/util/clock"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog"
+	"k8s.io/utils/clock"
 )
 
 // NewReflectorBuilder return a NewReflectorFunc with giving client

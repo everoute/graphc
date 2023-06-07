@@ -19,5 +19,6 @@ limitations under the License.
 // in three ways. First, we generalize reflector class as reflector interface, listAndWatch becomes
 // unnecessary, reflector can be implements by you own way. Second, we change the default keyFunc as
 // parameter, and exampleObject could be any types. Third, we deprecated method SetWatchErrorHandler,
-// it's coupling too much with cach.Reflector. You can add error handler in NewReflectorFunc now.
+// it's coupling too much with cach.Reflector. You can add error handler in NewReflectorFunc now. Fourth,
+// we deprecated method SetTransform.
 package informer

@@ -11,7 +11,7 @@ import (
 	graphcschema "github.com/everoute/graphc/pkg/schema"
 	"k8s.io/client-go/tools/cache"
 
-	"{{.Project}}/{{.SchemaModule}}"
+	"{{.Project}}/{{.SchemaModulePath}}"
 )
 
 type SharedInformerFactory interface {
@@ -33,6 +33,6 @@ func NewSharedInformerFactory(client *graphcclient.Client, defaultResync time.Du
 }
 {{range $index, $element := .Resources }}
 func (f *sharedInformerFactory) {{$element}}() cache.SharedIndexInformer {
-	return f.InformerFor(&schema.{{$element}}{})
+	return f.InformerFor(&{{$.SchemaModuleName}}.{{$element}}{})
 }
 {{end}}

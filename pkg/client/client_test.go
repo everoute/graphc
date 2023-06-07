@@ -20,17 +20,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/everoute/everoute/plugin/tower/pkg/server/fake"
 	. "github.com/onsi/gomega"
 )
 
-var (
-	server *fake.Server
-)
-
 func TestMain(m *testing.M) {
-	server = fake.NewServer(nil)
-	server.Serve()
 
 	os.Exit(m.Run())
 }

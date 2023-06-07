@@ -17,6 +17,7 @@ limitations under the License.
 package informer
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"sync"
@@ -116,7 +117,7 @@ func defaultNewInformerFunc(c *client.Client, obj schema.Object, resyncPeriod ti
 	return informer.NewSharedIndexInformer(newReflectorFunc, obj, DefaultKeyFunc, resyncPeriod, cache.Indexers{})
 }
 
-func ReconcileWorker(name string, queue workqueue.RateLimitingInterface, processFunc func(string) error) func() {
+func ReconcileWorker(ctx context.Context, name string, queue workqueue.RateLimitingInterface, processFunc func(context.Context, string) error) func() {
 	return func() {
 		for {
 			key, quit := queue.Get()
@@ -124,7 +125,7 @@ func ReconcileWorker(name string, queue workqueue.RateLimitingInterface, process
 				return
 			}
 
-			err := processFunc(key.(string))
+			err := processFunc(ctx, key.(string))
 			if err != nil {
 				queue.Done(key)
 				queue.AddRateLimited(key)

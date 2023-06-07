@@ -1,16 +1,30 @@
+# go.mod module name
 project: "github.com/test/zj"
 
-# skip generate default gqlgen exec action file, default is true
+# Skip generate default gqlgen exec action file, optional, default is true
 # skipGqlGenerated: true
 
 # informer config
 informer: 
+  # The informer resource
   resources:
     - EverouteCluster
     - IsolationPolicy
-  outFile: test/zj
+  # The informer code package, optional, default value is informer
+  # package: informer
+  # The file where the informer code placed
+  outFile: test/informer/factory_generated.go
+  # The dir where the resources go types code placed
+  schemaModulePath: test1/schemal
+  # The resources go types package name, optional, default is .gqlgen.model.package
+  # schemaModuleName: schemal
 
 # gqlgen config
-# gqlgen:
-#   schema: 
-#     - pkg/controller/tower/schema/model.graphql
+gqlgen:
+  schema: 
+    - test1/schema/model.graphql
+  model:
+    filename: test1/schema/model_generated.go
+    package: schema
+  # skip exec go mod tidy, default value is true
+  # skip_mod_tidy: true

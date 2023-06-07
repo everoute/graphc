@@ -42,6 +42,11 @@ func GetConfig(configFile string) (*Config, error) {
 	if config.Informer.Project == "" {
 		config.Informer.Project = config.Project
 	}
+	if config.Informer.SchemaModuleName == "" {
+		config.Informer.SchemaModuleName = config.Gqlgen.Model.Package
+	}
+
+	err = gqlgen.CompleteConfig(&config.Gqlgen)
 
 	return config, err
 }

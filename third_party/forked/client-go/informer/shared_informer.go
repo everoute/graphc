@@ -25,6 +25,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/tools/cache/synctrack"
 	"k8s.io/klog"
 	"k8s.io/utils/buffer"
 	"k8s.io/utils/clock"
@@ -90,9 +91,11 @@ type sharedIndexInformer struct {
 	// newReflector creates a new Reflector instance which will keep the
 	// given store up to date with the server's contents for the given
 	// resource.
+	// new attribute compared to https://pkg.go.dev/k8s.io/client-go/tools/cache
 	newReflector NewReflectorFunc
 
 	// keyFunc knows how to make a key from an object
+	// new attribute compared to https://pkg.go.dev/k8s.io/client-go/tools/cache
 	keyFunc cache.KeyFunc
 
 	// objectType is an example object of the type this informer is
@@ -127,6 +130,7 @@ type updateNotification struct {
 
 type addNotification struct {
 	newObj interface{}
+	isInInitialList bool
 }
 
 type deleteNotification struct {
@@ -231,8 +235,7 @@ func (s *sharedIndexInformer) GetController() cache.Controller {
 }
 
 func (s *sharedIndexInformer) AddEventHandler(handler cache.ResourceEventHandler) (cache.ResourceEventHandlerRegistration, error) {
-	s.AddEventHandlerWithResyncPeriod(handler, s.defaultEventHandlerResyncPeriod)
-	return nil, nil
+	return s.AddEventHandlerWithResyncPeriod(handler, s.defaultEventHandlerResyncPeriod)
 }
 
 func (s *sharedIndexInformer) RemoveEventHandler(handle cache.ResourceEventHandlerRegistration) error {
@@ -297,6 +300,7 @@ func (s *sharedIndexInformer) AddEventHandlerWithResyncPeriod(handler cache.Reso
 	listener := newProcessListener(handler, resyncPeriod, determineResyncPeriod(resyncPeriod, s.resyncCheckPeriod), s.clock.Now(), initialBufferSize, s.HasSynced)
 
 	if !s.started {
+		s.processor.addListener(listener)
 		return s.processor.addListener(listener), nil
 	}
 
@@ -315,7 +319,7 @@ func (s *sharedIndexInformer) AddEventHandlerWithResyncPeriod(handler cache.Reso
 	return handle, nil
 }
 
-func (s *sharedIndexInformer) HandleDeltas(obj interface{}) error {
+func (s *sharedIndexInformer) HandleDeltas(obj interface{}, isInInitialList bool) error {
 	s.blockDeltas.Lock()
 	defer s.blockDeltas.Unlock()
 
@@ -336,7 +340,7 @@ func (s *sharedIndexInformer) HandleDeltas(obj interface{}) error {
 				if err := s.indexer.Add(d.Object); err != nil {
 					return err
 				}
-				s.processor.distribute(addNotification{newObj: d.Object}, false)
+				s.processor.distribute(addNotification{newObj: d.Object, isInInitialList: isInInitialList}, false)
 			}
 		case cache.Deleted:
 			if err := s.indexer.Delete(d.Object); err != nil {
@@ -389,6 +393,23 @@ type sharedProcessor struct {
 	wg        wait.Group
 }
 
+func (p *sharedProcessor) getListener(registration cache.ResourceEventHandlerRegistration) *processorListener {
+	p.listenersLock.RLock()
+	defer p.listenersLock.RUnlock()
+
+	if p.listeners == nil {
+		return nil
+	}
+
+	if result, ok := registration.(*processorListener); ok {
+		if _, exists := p.listeners[result]; exists {
+			return result
+		}
+	}
+
+	return nil
+}
+
 func (p *sharedProcessor) addListener(listener *processorListener) cache.ResourceEventHandlerRegistration {
 	p.listenersLock.Lock()
 	defer p.listenersLock.Unlock()
@@ -398,10 +419,12 @@ func (p *sharedProcessor) addListener(listener *processorListener) cache.Resourc
 	}
 
 	p.listeners[listener] = true
+
 	if p.listenersStarted {
 		p.wg.Start(listener.run)
 		p.wg.Start(listener.pop)
 	}
+
 	return listener
 }
 
@@ -458,11 +481,20 @@ func (p *sharedProcessor) run(stopCh <-chan struct{}) {
 		p.listenersStarted = true
 	}()
 	<-stopCh
-	p.listenersLock.RLock()
-	defer p.listenersLock.RUnlock()
+
+	p.listenersLock.Lock()
+	defer p.listenersLock.Unlock()
 	for listener := range p.listeners {
 		close(listener.addCh) // Tell .pop() to stop. .pop() will tell .run() to stop
 	}
+
+	// Wipe out list of listeners since they are now closed
+	// (processorListener cannot be re-used)
+	p.listeners = nil
+
+	// Reset to false since no listeners are running
+	p.listenersStarted = false
+
 	p.wg.Wait() // Wait for all .pop() and .run() to stop
 }
 
@@ -493,7 +525,8 @@ func (p *sharedProcessor) resyncCheckPeriodChanged(resyncCheckPeriod time.Durati
 	defer p.listenersLock.RUnlock()
 
 	for listener := range p.listeners {
-		resyncPeriod := determineResyncPeriod(listener.requestedResyncPeriod, resyncCheckPeriod)
+		resyncPeriod := determineResyncPeriod(
+			listener.requestedResyncPeriod, resyncCheckPeriod)
 		listener.setResyncPeriod(resyncPeriod)
 	}
 }
@@ -515,6 +548,8 @@ type processorListener struct {
 
 	handler cache.ResourceEventHandler
 
+	syncTracker *synctrack.SingleFileTracker
+
 	// pendingNotifications is an unbounded ring buffer that holds all notifications not yet distributed.
 	// There is one per listener, but a failing/stalled listener will have infinite pendingNotifications
 	// added until we OOM.
@@ -526,9 +561,9 @@ type processorListener struct {
 	// full resync from the shared informer, but modified by two
 	// adjustments.  One is imposing a lower bound,
 	// `minimumResyncPeriod`.  The other is another lower bound, the
-	// sharedProcessor's `resyncCheckPeriod`, that is imposed (a) only
+	// sharedIndexInformer's `resyncCheckPeriod`, that is imposed (a) only
 	// in AddEventHandlerWithResyncPeriod invocations made after the
-	// sharedProcessor starts and (b) only if the informer does
+	// sharedIndexInformer starts and (b) only if the informer does
 	// resyncs at all.
 	requestedResyncPeriod time.Duration
 	// resyncPeriod is the threshold that will be used in the logic
@@ -550,6 +585,7 @@ func newProcessListener(handler cache.ResourceEventHandler, requestedResyncPerio
 		nextCh:                make(chan interface{}),
 		addCh:                 make(chan interface{}),
 		handler:               handler,
+		syncTracker:           &synctrack.SingleFileTracker{UpstreamHasSynced: hasSynced},
 		pendingNotifications:  *buffer.NewRingGrowing(bufferSize),
 		requestedResyncPeriod: requestedResyncPeriod,
 		resyncPeriod:          resyncPeriod,
@@ -560,7 +596,16 @@ func newProcessListener(handler cache.ResourceEventHandler, requestedResyncPerio
 	return ret
 }
 
+// HasSynced returns true if the source informer has synced, and all
+// corresponding events have been delivered.
+func (p *processorListener) HasSynced() bool {
+	return p.syncTracker.HasSynced()
+}
+
 func (p *processorListener) add(notification interface{}) {
+	if a, ok := notification.(addNotification); ok && a.isInInitialList {
+		p.syncTracker.Start()
+	}
 	p.addCh <- notification
 }
 
@@ -606,7 +651,10 @@ func (p *processorListener) run() {
 			case updateNotification:
 				p.handler.OnUpdate(notification.oldObj, notification.newObj)
 			case addNotification:
-				p.handler.OnAdd(notification.newObj)
+				p.handler.OnAdd(notification.newObj, notification.isInInitialList)
+				if notification.isInInitialList {
+					p.syncTracker.Finished()
+				}
 			case deleteNotification:
 				p.handler.OnDelete(notification.oldObj)
 			default:

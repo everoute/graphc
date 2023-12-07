@@ -39,6 +39,7 @@ import (
 )
 
 // NewReflectorBuilder return a NewReflectorFunc with giving client
+//nolint
 func NewReflectorBuilder(client *client.Client) informer.NewReflectorFunc {
 	return func(options *informer.ReflectorOptions) informer.Reflector {
 		return &reflector{

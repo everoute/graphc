@@ -4,7 +4,7 @@ on: [pull_request_target]
 
 jobs:
   labeler:
-    runs-on: self-hosted
+    runs-on: [self-hosted, pod]
     permissions:
       issues: write
       pull-requests: write
@@ -32,3 +32,4 @@ jobs:
             "*.pb.go"
             "go.sum"
             "go.mod"
+            "*_test.go"

@@ -21,8 +21,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/everoute/graphc/pkg/client"
 	. "github.com/onsi/gomega"
+
+	"github.com/everoute/graphc/pkg/client"
 )
 
 func TestResponseErrorUnmarshalJSON(t *testing.T) {

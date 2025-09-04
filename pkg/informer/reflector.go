@@ -26,21 +26,22 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/everoute/graphc/pkg/client"
-	"github.com/everoute/graphc/pkg/schema"
-	"github.com/everoute/graphc/pkg/utils"
-	"github.com/everoute/graphc/third_party/forked/client-go/informer"
 	"github.com/gertd/go-pluralize"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog"
 	"k8s.io/utils/clock"
+
+	"github.com/everoute/graphc/pkg/client"
+	"github.com/everoute/graphc/pkg/schema"
+	"github.com/everoute/graphc/pkg/utils"
+	"github.com/everoute/graphc/third_party/forked/client-go/informer"
 )
 
 // NewReflectorBuilder return a NewReflectorFunc with giving client
 //nolint
-func NewReflectorBuilder(client *client.Client) informer.NewReflectorFunc {
+func NewReflectorBuilder(client *client.Client, crc chan *CrcEvent) informer.NewReflectorFunc {
 	return func(options *informer.ReflectorOptions) informer.Reflector {
 		return &reflector{
 			client:     client,
@@ -52,6 +53,7 @@ func NewReflectorBuilder(client *client.Client) informer.NewReflectorFunc {
 			resyncPeriod:   options.ResyncPeriod,
 			shouldResync:   options.ShouldResync,
 			clock:          options.Clock,
+			crcEventChan:   crc,
 		}
 	}
 }
@@ -80,6 +82,8 @@ type reflector struct {
 	shouldResync cache.ShouldResyncFunc
 	// clock allows tests to manipulate time
 	clock clock.Clock
+
+	crcEventChan chan *CrcEvent
 }
 
 // Run repeatedly fetch all the objects and subsequent deltas.
@@ -88,7 +92,12 @@ func (r *reflector) Run(stopCh <-chan struct{}) {
 	klog.Infof("start reflector for object %s, with client %v", r.expectType.TypeName(), r.client.URL)
 	defer klog.Infof("stop reflector for object %s, with client %v", r.expectType.TypeName(), r.client.URL)
 
-	wait.BackoffUntil(r.reflectWorker(stopCh), r.backoffManager, true, stopCh)
+	go wait.BackoffUntil(r.reflectWorker(stopCh), r.backoffManager, true, stopCh)
+	if r.crcEventChan != nil {
+		go r.crcEventHandler(stopCh)
+	}
+
+	<-stopCh
 }
 
 // LastSyncResourceVersion not support by gql server.
@@ -244,6 +253,95 @@ func (r *reflector) watchErrorHandler(respErrs []client.ResponseError, err error
 	}
 }
 
+func (r *reflector) crcEventHandler(stopCh <-chan struct{}) {
+	klog.Infof("start crc event handler for %s", r.expectType)
+
+	if r.crcEventChan == nil {
+		klog.Fatalf("fail to register crc event for %s", r.expectType)
+	}
+	for {
+		select {
+		case event := <-r.crcEventChan:
+			var newObj any
+			var err error
+			if event.NewObj != nil {
+				newObj, err = r.query(event.NewObj.GetID())
+				if err != nil {
+					klog.Errorf("unable to query %s %s: %s", r.expectType, event.NewObj.GetID(), err)
+					continue
+				}
+				if newObj == nil {
+					klog.V(4).Infof("query %s %s got nil object, the object has been deleted", r.expectType, event.NewObj.GetID())
+					event.EventType = CrcEventDelete
+					event.OldObj = event.NewObj
+					event.NewObj = nil
+				}
+			}
+
+			klog.V(4).Infof("get %s crc event of type %s: new %+v old %+v",
+				event.EventType, r.expectType.TypeName(), event.NewObj, event.OldObj)
+
+			switch event.EventType {
+			case CrcEventInsert:
+				_ = r.store.Add(newObj)
+			case CrcEventUpdate:
+				if newObj != nil {
+					_ = r.store.Update(newObj)
+				}
+			case CrcEventDelete:
+				_ = r.store.Delete(event.OldObj)
+			default:
+				klog.Infof("reflector %s unknown event %+v", r.expectType, event)
+			}
+		case <-stopCh:
+			return
+		}
+	}
+}
+
+func (r *reflector) query(id string) (any, error) {
+	resp, err := r.client.Query(r.queryRequestWithID(id))
+	if err != nil {
+		return nil, err
+	}
+	if len(resp.Errors) != 0 {
+		return nil, fmt.Errorf("query error, %v", resp.Errors)
+	}
+
+	jsonMap := make(map[string]json.RawMessage)
+	if err := json.Unmarshal(resp.Data, &jsonMap); err != nil {
+		return nil, err
+	}
+
+	list, err := r.unmarshalList(jsonMap[r.expectType.ListName()])
+	if err == nil && len(list) == 1 {
+		return list[0], nil
+	}
+	return nil, nil
+}
+
+func (r *reflector) queryRequestWithID(id string) *client.Request {
+	return &client.Request{
+		Query: fmt.Sprintf("query {%s(where:{id:\"%s\"}) %s}", r.expectType.ListName(), id, r.expectType.QueryFields(r.skipFields))}
+}
+
+func (r *reflector) unmarshalList(raw json.RawMessage) ([]any, error) {
+	list := reflect.New(reflect.SliceOf(r.expectType.Type))
+
+	err := unmarshalSlice(r.expectType.Type, raw, list.Interface())
+	if err != nil {
+		return nil, err
+	}
+
+	items := list.Elem()
+	found := make([]any, 0, items.Len())
+
+	for i := 0; i < items.Len(); i++ {
+		found = append(found, items.Index(i).Interface())
+	}
+	return found, nil
+}
+
 // syncWith replaces the store's items with the given json RawMessage.
 func (r *reflector) syncWith(raw json.RawMessage) error {
 	list := reflect.New(reflect.SliceOf(r.expectType.Type))
@@ -336,6 +434,10 @@ func (r *reflector) subscriptionRequest() *client.Request {
 
 type gqlType struct {
 	reflect.Type
+}
+
+func NewGqlType(r reflect.Type) *gqlType {
+	return &gqlType{r}
 }
 
 // TypeName return name with lower cases of the type.

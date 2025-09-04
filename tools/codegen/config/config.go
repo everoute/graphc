@@ -6,9 +6,10 @@ import (
 	"os"
 
 	gqlgenconfig "github.com/99designs/gqlgen/codegen/config"
+	"gopkg.in/yaml.v3"
+
 	"github.com/everoute/graphc/tools/codegen/gqlgen"
 	"github.com/everoute/graphc/tools/codegen/informer"
-	"gopkg.in/yaml.v3"
 )
 
 type Config struct {

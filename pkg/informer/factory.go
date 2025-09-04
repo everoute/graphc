@@ -23,12 +23,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/everoute/graphc/pkg/client"
-	"github.com/everoute/graphc/pkg/schema"
-	"github.com/everoute/graphc/third_party/forked/client-go/informer"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog"
+
+	"github.com/everoute/graphc/pkg/client"
+	"github.com/everoute/graphc/pkg/schema"
+	"github.com/everoute/graphc/third_party/forked/client-go/informer"
 )
 
 // NewSharedInformerFactory constructs a new instance of sharedInformerFactory for all resources
@@ -105,15 +106,35 @@ func (f *SharedInformerFactory) InformerFor(obj schema.Object) cache.SharedIndex
 	if !exists {
 		resyncPeriod = f.defaultResync
 	}
-
-	sharedInformer = defaultNewInformerFunc(f.client, obj, resyncPeriod)
+	sharedInformer = defaultNewInformerFunc(f.client, obj, resyncPeriod, nil)
 	f.informers[informerType] = sharedInformer
 
 	return sharedInformer
 }
 
-func defaultNewInformerFunc(c *client.Client, obj schema.Object, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	var newReflectorFunc = NewReflectorBuilder(c)
+// InformerFor implements SharedInformerFactory.InformerFor
+func (f *SharedInformerFactory) InformerForWithCrc(obj schema.Object, crc chan *CrcEvent) cache.SharedIndexInformer {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
+	informerType := reflect.TypeOf(obj)
+	sharedInformer, exists := f.informers[informerType]
+	if exists {
+		return sharedInformer
+	}
+
+	resyncPeriod, exists := f.customResync[informerType]
+	if !exists {
+		resyncPeriod = f.defaultResync
+	}
+	sharedInformer = defaultNewInformerFunc(f.client, obj, resyncPeriod, crc)
+	f.informers[informerType] = sharedInformer
+
+	return sharedInformer
+}
+
+func defaultNewInformerFunc(c *client.Client, obj schema.Object, resyncPeriod time.Duration, crc chan *CrcEvent) cache.SharedIndexInformer {
+	var newReflectorFunc = NewReflectorBuilder(c, crc)
 	return informer.NewSharedIndexInformer(newReflectorFunc, obj, DefaultKeyFunc, resyncPeriod, cache.Indexers{})
 }
 

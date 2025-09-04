@@ -26,10 +26,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/everoute/graphc/pkg/utils"
 	"github.com/gorilla/websocket"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/klog"
+
+	"github.com/everoute/graphc/pkg/utils"
 )
 
 type Client struct {

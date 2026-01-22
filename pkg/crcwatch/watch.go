@@ -52,8 +52,11 @@ func (w *Watch) Start(stopCh <-chan struct{}) {
 		for {
 			select {
 			case err := <-w.crcWatchClient.ErrorChannel():
+				if err == nil {
+					klog.Fatal("crc watch get nil error")
+				}
 				if err.CompactRevision != nil {
-					klog.Fatalf("crc event missed, compacted error : %s", *err.CompactRevision)
+					klog.Fatalf("crc event missed, compacted error : %v, compact revision %s", err, *err.CompactRevision)
 				} else if err.Err != nil {
 					klog.Errorf("crc error event: %v", err)
 					if err.Type == watchor.ErrorEventTypeUnsupported {

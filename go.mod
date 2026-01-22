@@ -9,7 +9,7 @@ require (
 	github.com/gorilla/websocket v1.5.0
 	github.com/onsi/ginkgo/v2 v2.12.0
 	github.com/onsi/gomega v1.27.10
-	github.com/smartxworks/cloudtower-go-sdk/v2 v2.20.0
+	github.com/smartxworks/cloudtower-go-sdk/v2 v2.21.1-rc.1
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/apimachinery v0.27.1
 	k8s.io/client-go v0.27.1

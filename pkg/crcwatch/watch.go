@@ -57,18 +57,19 @@ func (w *Watch) Start(stopCh <-chan struct{}) {
 				}
 				if err.CompactRevision != nil {
 					klog.Fatalf("crc event missed, compacted error : %v, compact revision %s", err, *err.CompactRevision)
-				} else if err.Err != nil {
-					klog.Errorf("crc error event: %v", err)
-					if err.Type == watchor.ErrorEventTypeUnsupported {
-						// after unsupported error, crc will stop event loop
-						return
-					}
+				} else {
+					klog.Errorf("crc error event: %v, return watch", err)
+					return
 				}
 			case warning := <-w.crcWatchClient.WarningChannel():
 				if warning.Err != nil {
 					klog.Warningf("crc warning event %s", warning.Err.Error())
 				}
 			case event := <-w.crcWatchClient.Channel():
+				if event == nil {
+					klog.Error("crc watch get nil event, skip")
+					continue
+				}
 				w.eventHandler(event)
 			case <-stopCh:
 				return
@@ -83,7 +84,7 @@ func (w *Watch) Start(stopCh <-chan struct{}) {
 				return
 			default:
 				crcwLoop()
-				// crcwLoop will return when crc not supported
+				// crcwLoop will return when get error
 				// restart after 10 minutes for tower upgrade
 				time.Sleep(10 * time.Minute)
 			}

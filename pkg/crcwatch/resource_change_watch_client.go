@@ -88,6 +88,7 @@ func NewWatchOriClient(resourceTypes []string, opts *Options) (*watchor.Resource
 
 	var options resource_change_client.ClientOption = func(op *runtime.ClientOperation) {
 		op.AuthInfo = httptransport.BasicAuth(opts.APIUsername, opts.APIPassword)
+		op.Params = NewBypassWhiteListHeader()
 	}
 
 	crcWatchClient, err := watchor.NewResourceChangeWatchClient(&watchor.NewResourceChangeWatchClientParams{

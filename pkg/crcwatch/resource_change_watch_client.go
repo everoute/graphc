@@ -45,18 +45,32 @@ func SetHost(host string) OptionFunc {
 	}
 }
 
+func SetLimit(l int32) OptionFunc {
+	return func(o *Options) {
+		o.Limit = l
+	}
+}
+
 func SetPollingInterval(i time.Duration) OptionFunc {
 	return func(o *Options) {
 		o.PollingInterval = i
 	}
 }
 
+func SetCatchUpPollingInterval(i time.Duration) OptionFunc {
+	return func(o *Options) {
+		o.CatchUpPollingInterval = i
+	}
+}
+
 type Options struct {
-	UserInfo        *client.UserInfo
-	Host            string
-	APIUsername     string
-	APIPassword     string
-	PollingInterval time.Duration
+	UserInfo               *client.UserInfo
+	Host                   string
+	APIUsername            string
+	APIPassword            string
+	PollingInterval        time.Duration
+	CatchUpPollingInterval time.Duration
+	Limit                  int32
 }
 
 func NewWatchClient(resourceTypes []string, opts *Options) (ResourceChangeWatcher, error) {
@@ -92,11 +106,13 @@ func NewWatchOriClient(resourceTypes []string, opts *Options) (*watchor.Resource
 	}
 
 	crcWatchClient, err := watchor.NewResourceChangeWatchClient(&watchor.NewResourceChangeWatchClientParams{
-		Client:          towerclient,
-		ResourceID:      nil,
-		PollingInterval: opts.PollingInterval,
-		ClientOptions:   options,
-		ResourceTypes:   resourceTypes,
+		Client:                 towerclient,
+		ResourceID:             nil,
+		PollingInterval:        opts.PollingInterval,
+		CatchUpPollingInterval: opts.CatchUpPollingInterval,
+		Limit:                  opts.Limit,
+		ClientOptions:          options,
+		ResourceTypes:          resourceTypes,
 	})
 
 	if err != nil {

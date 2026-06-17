@@ -45,6 +45,12 @@ func SetHost(host string) OptionFunc {
 	}
 }
 
+func SetScheme(scheme string) OptionFunc {
+	return func(o *Options) {
+		o.Scheme = scheme
+	}
+}
+
 func SetLimit(l int32) OptionFunc {
 	return func(o *Options) {
 		o.Limit = l
@@ -66,6 +72,7 @@ func SetCatchUpPollingInterval(i time.Duration) OptionFunc {
 type Options struct {
 	UserInfo               *client.UserInfo
 	Host                   string
+	Scheme                 string
 	APIUsername            string
 	APIPassword            string
 	PollingInterval        time.Duration
@@ -85,10 +92,15 @@ func NewWatchClient(resourceTypes []string, opts *Options) (ResourceChangeWatche
 }
 
 func NewWatchOriClient(resourceTypes []string, opts *Options) (*watchor.ResourceChangeWatchClient, error) {
+	scheme := opts.Scheme
+	if scheme == "" {
+		scheme = "http"
+	}
+
 	towerclient, err := apiclient.NewWithUserConfig(apiclient.ClientConfig{
 		Host:     opts.Host,
 		BasePath: "v2/api",
-		Schemes:  []string{"http"},
+		Schemes:  []string{scheme},
 	}, apiclient.UserConfig{
 		Name:     opts.UserInfo.Username,
 		Password: opts.UserInfo.Password,

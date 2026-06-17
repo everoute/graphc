@@ -86,6 +86,9 @@ var _ = Describe("Watch", func() {
 
 		SetHost("127.0.0.1")(opts)
 		Expect(opts.Host).To(Equal("127.0.0.1"))
+
+		SetScheme("https")(opts)
+		Expect(opts.Scheme).To(Equal("https"))
 	})
 
 	It("should call handler when event received", func() {

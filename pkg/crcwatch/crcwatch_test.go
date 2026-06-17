@@ -2,10 +2,13 @@ package crcwatch
 
 import (
 	"errors"
+	"net/url"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/strfmt"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/smartxworks/cloudtower-go-sdk/v2/models"
@@ -51,6 +54,23 @@ func (f *fakeWatchClient) getStartCall() int {
 func (f *fakeWatchClient) Channel() <-chan *models.ResourceChangeEvent  { return f.eventCh }
 func (f *fakeWatchClient) ErrorChannel() <-chan *watchor.ErrorEvent     { return f.errCh }
 func (f *fakeWatchClient) WarningChannel() <-chan *watchor.WarningEvent { return f.warnCh }
+
+type fakeClientRequest struct {
+	runtime.TestClientRequest
+	query url.Values
+}
+
+func (f *fakeClientRequest) SetQueryParam(name string, values ...string) error {
+	if f.query == nil {
+		f.query = make(url.Values)
+	}
+	f.query[name] = values
+	return nil
+}
+
+func (f *fakeClientRequest) GetQueryParams() url.Values {
+	return f.query
+}
 
 var _ = Describe("Watch", func() {
 	var (
@@ -123,5 +143,20 @@ var _ = Describe("NewWatch", func() {
 		w, err := NewWatch([]string{"TestResource"}, SetUserInfo(&client.UserInfo{}))
 		Expect(w).To(BeNil())
 		Expect(err).ToNot(BeNil())
+	})
+})
+
+var _ = Describe("Bypass whitelist header", func() {
+	It("should preserve origin request writer", func() {
+		origin := runtime.ClientRequestWriterFunc(func(req runtime.ClientRequest, _ strfmt.Registry) error {
+			return req.SetQueryParam("limit", "500")
+		})
+
+		req := &fakeClientRequest{}
+		err := NewBypassWhiteListHeader(origin).WriteToRequest(req, nil)
+
+		Expect(err).ToNot(HaveOccurred())
+		Expect(req.GetQueryParams().Get("limit")).To(Equal("500"))
+		Expect(req.GetHeaderParams().Get("x-bypass-whitelist")).To(Equal("true"))
 	})
 })

@@ -6,17 +6,28 @@ import (
 )
 
 type ExtraHeaderStruct struct {
-	Key   string
-	Value string
+	key    string
+	value  string
+	origin runtime.ClientRequestWriter
 }
 
-func (e *ExtraHeaderStruct) WriteToRequest(req runtime.ClientRequest, _ strfmt.Registry) error {
-	return req.SetHeaderParam(e.Key, e.Value)
-}
-
-func NewBypassWhiteListHeader() *ExtraHeaderStruct {
+func NewExtraHeaderStruct(key, value string, origin runtime.ClientRequestWriter) *ExtraHeaderStruct {
 	return &ExtraHeaderStruct{
-		Key:   "x-bypass-whitelist",
-		Value: "true",
+		key:    key,
+		value:  value,
+		origin: origin,
 	}
+}
+
+func (e *ExtraHeaderStruct) WriteToRequest(req runtime.ClientRequest, fmt strfmt.Registry) error {
+	if e.origin != nil {
+		if err := e.origin.WriteToRequest(req, fmt); err != nil {
+			return err
+		}
+	}
+	return req.SetHeaderParam(e.key, e.value)
+}
+
+func NewBypassWhiteListHeader(origin runtime.ClientRequestWriter) *ExtraHeaderStruct {
+	return NewExtraHeaderStruct("x-bypass-whitelist", "true", origin)
 }

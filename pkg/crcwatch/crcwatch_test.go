@@ -2,6 +2,8 @@ package crcwatch
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"sync"
 	"testing"
@@ -109,6 +111,9 @@ var _ = Describe("Watch", func() {
 
 		SetScheme("https")(opts)
 		Expect(opts.Scheme).To(Equal("https"))
+
+		SetAllowInsecure(true)(opts)
+		Expect(opts.AllowInsecure).To(BeTrue())
 	})
 
 	It("should call handler when event received", func() {
@@ -147,6 +152,49 @@ var _ = Describe("NewWatch", func() {
 		Expect(w).To(BeNil())
 		Expect(err).ToNot(BeNil())
 	})
+
+	It("should create crc client with insecure https enabled", func() {
+		server := newLoginTLSServer()
+		defer server.Close()
+
+		u, err := url.Parse(server.URL)
+		Expect(err).ToNot(HaveOccurred())
+
+		watchClient, err := NewWatchOriClient([]string{"vm"}, &Options{
+			UserInfo: &client.UserInfo{
+				Username: "user",
+				Password: "pass",
+				Source:   string(models.UserSourceLOCAL),
+			},
+			Host:          u.Host,
+			Scheme:        u.Scheme,
+			AllowInsecure: true,
+		})
+
+		Expect(err).ToNot(HaveOccurred())
+		Expect(watchClient).ToNot(BeNil())
+	})
+
+	It("should fail to create crc client for untrusted https when insecure is disabled", func() {
+		server := newLoginTLSServer()
+		defer server.Close()
+
+		u, err := url.Parse(server.URL)
+		Expect(err).ToNot(HaveOccurred())
+
+		watchClient, err := NewWatchOriClient([]string{"vm"}, &Options{
+			UserInfo: &client.UserInfo{
+				Username: "user",
+				Password: "pass",
+				Source:   string(models.UserSourceLOCAL),
+			},
+			Host:   u.Host,
+			Scheme: u.Scheme,
+		})
+
+		Expect(err).To(HaveOccurred())
+		Expect(watchClient).To(BeNil())
+	})
 })
 
 var _ = Describe("Bypass whitelist header", func() {
@@ -163,3 +211,14 @@ var _ = Describe("Bypass whitelist header", func() {
 		Expect(req.GetHeaderParams().Get("x-bypass-whitelist")).To(Equal("true"))
 	})
 })
+
+func newLoginTLSServer() *httptest.Server {
+	return httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/api/login" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"token":"token"}}`))
+	}))
+}

@@ -2,12 +2,15 @@ package crcwatch
 
 import (
 	"errors"
+	"net/http"
 	"time"
 
 	"github.com/go-openapi/runtime"
 	httptransport "github.com/go-openapi/runtime/client"
+	"github.com/go-openapi/strfmt"
 	apiclient "github.com/smartxworks/cloudtower-go-sdk/v2/client"
 	resource_change_client "github.com/smartxworks/cloudtower-go-sdk/v2/client/resource_change"
+	userclient "github.com/smartxworks/cloudtower-go-sdk/v2/client/user"
 	"github.com/smartxworks/cloudtower-go-sdk/v2/models"
 	watchor "github.com/smartxworks/cloudtower-go-sdk/v2/watchor"
 	"k8s.io/klog"
@@ -51,6 +54,12 @@ func SetScheme(scheme string) OptionFunc {
 	}
 }
 
+func SetAllowInsecure(allow bool) OptionFunc {
+	return func(o *Options) {
+		o.AllowInsecure = allow
+	}
+}
+
 func SetLimit(l int32) OptionFunc {
 	return func(o *Options) {
 		o.Limit = l
@@ -73,6 +82,7 @@ type Options struct {
 	UserInfo               *client.UserInfo
 	Host                   string
 	Scheme                 string
+	AllowInsecure          bool
 	APIUsername            string
 	APIPassword            string
 	PollingInterval        time.Duration
@@ -97,7 +107,7 @@ func NewWatchOriClient(resourceTypes []string, opts *Options) (*watchor.Resource
 		scheme = "http"
 	}
 
-	towerclient, err := apiclient.NewWithUserConfig(apiclient.ClientConfig{
+	towerclient, err := newTowerClient(apiclient.ClientConfig{
 		Host:     opts.Host,
 		BasePath: "v2/api",
 		Schemes:  []string{scheme},
@@ -105,7 +115,7 @@ func NewWatchOriClient(resourceTypes []string, opts *Options) (*watchor.Resource
 		Name:     opts.UserInfo.Username,
 		Password: opts.UserInfo.Password,
 		Source:   models.UserSource(opts.UserInfo.Source),
-	})
+	}, opts.AllowInsecure)
 
 	if err != nil {
 		klog.Errorf("Failed to init api client, err: %s", err)
@@ -135,4 +145,37 @@ func NewWatchOriClient(resourceTypes []string, opts *Options) (*watchor.Resource
 		return nil, err
 	}
 	return crcWatchClient, nil
+}
+
+func newTowerClient(clientConfig apiclient.ClientConfig, userConfig apiclient.UserConfig, insecure bool) (*apiclient.Cloudtower, error) {
+	tlsConfig, err := httptransport.TLSClientAuth(httptransport.TLSClientOptions{
+		InsecureSkipVerify: insecure, // #nosec G402
+	})
+	if err != nil {
+		return nil, err
+	}
+	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
+	httpTransport.TLSClientConfig = tlsConfig
+	httpClient := &http.Client{Transport: httpTransport}
+
+	transport := httptransport.NewWithClient(clientConfig.Host, clientConfig.BasePath, clientConfig.Schemes, httpClient)
+	client := apiclient.New(transport, strfmt.Default)
+
+	params := userclient.NewLoginParams()
+	params.RequestBody = &models.LoginInput{
+		Username: &userConfig.Name,
+		Password: &userConfig.Password,
+		Source:   userConfig.Source.Pointer(),
+	}
+
+	resp, err := client.User.Login(params)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Payload == nil || resp.Payload.Data == nil || resp.Payload.Data.Token == nil {
+		return nil, errors.New("login response missing token")
+	}
+
+	transport.DefaultAuthentication = httptransport.APIKeyAuth("Authorization", "header", *resp.Payload.Data.Token)
+	return client, nil
 }
